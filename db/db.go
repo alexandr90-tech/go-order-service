@@ -51,7 +51,7 @@ func GetAllOrders() ([]Order, error) {
 		var p Payment
 
 		err := rows.Scan(
-			&o.OrderUID, &o.Track_Number, &o.Entry, &o.Locale,
+			&o.OrderUID, &o.TrackNumber, &o.Entry, &o.Locale,
 			&o.CustomerID, &o.DeliveryService, &o.DateCreated,
 			&d.Name, &d.Phone, &d.Zip, &d.City, &d.Address, &d.Region, &d.Email,
 			&p.Transaction, &p.Currency, &p.Provider, &p.Amount, &p.PaymentDT,
@@ -92,8 +92,10 @@ func GetItemsByOrder(orderUID string) ([]Item, error) {
 	var items []Item
 	for rows.Next() {
 		var it Item
-		err := rows.Scan(&it.ChrtID, &it.TrackNumber, &it.Price, &it.Rid, &it.Name,
-			&it.Sale, &it.Size, &it.TotalPrice, &it.NmID, &it.Brand, &it.Status)
+		err := rows.Scan(
+			&it.ChrtID, &it.TrackNumber, &it.Price, &it.Rid, &it.Name,
+			&it.Sale, &it.Size, &it.TotalPrice, &it.NmID, &it.Brand, &it.Status,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -104,17 +106,43 @@ func GetItemsByOrder(orderUID string) ([]Item, error) {
 
 // GetOrderByUID — поиск заказа по UID
 func GetOrderByUID(orderUID string) (*Order, error) {
-	orders, err := GetAllOrders()
+	row := DB.QueryRow(`
+	SELECT o.order_uid, o.track_number, o.entry, o.locale, o.customer_id,
+	       o.delivery_service, o.date_created,
+	       d.name, d.phone, d.zip, d.city, d.address, d.region, d.email,
+	       p.transaction, p.currency, p.provider, p.amount, p.payment_dt, p.bank,
+	       p.delivery_cost, p.goods_total, p.custom_fee
+	FROM orders o
+	JOIN deliveries d ON o.order_uid = d.order_uid
+	JOIN payments   p ON o.order_uid = p.order_uid
+	WHERE o.order_uid = $1
+	`, orderUID)
+
+	var o Order
+	var d Delivery
+	var p Payment
+
+	err := row.Scan(
+		&o.OrderUID, &o.TrackNumber, &o.Entry, &o.Locale,
+		&o.CustomerID, &o.DeliveryService, &o.DateCreated,
+		&d.Name, &d.Phone, &d.Zip, &d.City, &d.Address, &d.Region, &d.Email,
+		&p.Transaction, &p.Currency, &p.Provider, &p.Amount, &p.PaymentDT,
+		&p.Bank, &p.DeliveryCost, &p.GoodsTotal, &p.CustomFee,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	for _, o := range orders {
-		if o.OrderUID == orderUID {
-			return &o, nil
-		}
+	items, err := GetItemsByOrder(o.OrderUID)
+	if err != nil {
+		return nil, err
 	}
-	return nil, sql.ErrNoRows
+
+	o.Delivery = d
+	o.Payment = p
+	o.Items = items
+
+	return &o, nil
 }
 
 // InsertOrder — сохраняем заказ и его зависимости (delivery, payment, items)
@@ -124,7 +152,7 @@ func InsertOrder(order *Order) error {
 		INSERT INTO orders (order_uid, track_number, entry, locale, customer_id,
 		                    delivery_service, date_created)
 		VALUES ($1,$2,$3,$4,$5,$6,$7)
-	`, order.OrderUID, order.Track_Number, order.Entry, order.Locale,
+	`, order.OrderUID, order.TrackNumber, order.Entry, order.Locale,
 		order.CustomerID, order.DeliveryService, order.DateCreated)
 	if err != nil {
 		return fmt.Errorf("ошибка вставки заказа: %w", err)

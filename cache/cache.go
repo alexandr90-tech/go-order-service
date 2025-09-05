@@ -10,34 +10,41 @@ import (
 	"github.com/gorilla/mux"
 )
 
+// Cache — потокобезопасный кеш заказов
 type Cache struct {
 	sync.RWMutex
 	Orders map[string]db.Order
 }
 
+// NewCache создаёт новый кеш
 func NewCache() *Cache {
 	return &Cache{Orders: make(map[string]db.Order)}
 }
 
+// LoadFromDB загружает все заказы из БД в кеш
 func (c *Cache) LoadFromDB() error {
 	orders, err := db.GetAllOrders()
 	if err != nil {
 		return err
 	}
+
 	c.Lock()
+	defer c.Unlock()
+
 	for _, o := range orders {
 		c.Orders[o.OrderUID] = o
 	}
-	c.Unlock()
 	return nil
 }
 
+// Set добавляет/обновляет заказ в кеше
 func (c *Cache) Set(orderUID string, order db.Order) {
 	c.Lock()
 	defer c.Unlock()
 	c.Orders[orderUID] = order
 }
 
+// GetOrderHandler — HTTP handler для получения заказа по UID
 func (c *Cache) GetOrderHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
@@ -52,9 +59,10 @@ func (c *Cache) GetOrderHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(order)
+	_ = json.NewEncoder(w).Encode(order)
 }
 
+// GetOrder возвращает заказ по UID
 func (c *Cache) GetOrder(orderUID string) (db.Order, bool) {
 	c.RLock()
 	defer c.RUnlock()

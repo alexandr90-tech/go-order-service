@@ -1,10 +1,7 @@
-version: "3.8"
-
 services:
   postgres:
     image: postgres:15
-    container_name: orders_postgres
-    restart: always
+    container_name: go-order-postgres
     environment:
       POSTGRES_USER: go_order_user
       POSTGRES_PASSWORD: go_order_pass
@@ -12,21 +9,20 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - postgres_data:/var/lib/postgresql/data
 
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
-    container_name: orders_zookeeper
-    restart: always
+    container_name: go-order-zookeeper
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
     ports:
       - "2181:2181"
 
   kafka:
     image: confluentinc/cp-kafka:7.5.0
-    container_name: orders_kafka
-    restart: always
+    container_name: go-order-kafka
     depends_on:
       - zookeeper
     ports:
@@ -37,20 +33,5 @@ services:
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
 
-  orders-service:
-    build: .
-    container_name: orders_service
-    depends_on:
-      - postgres
-      - kafka
-    environment:
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_USER: go_order_user
-      DB_PASSWORD: go_order_pass
-      DB_NAME: go_order_db
-      HTTP_PORT: 8080
-      KAFKA_BROKER: kafka:9092
-      KAFKA_TOPIC: orders
-    ports:
-      - "8080:8080"
+volumes:
+  postgres_data:

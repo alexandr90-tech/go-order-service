@@ -26,6 +26,15 @@ func main() {
 	if err := db.InitDB(cfg.GetDBConnString()); err != nil {
 		log.Fatalf("Ошибка подключения к БД: %v", err)
 	}
+	// Подключение к PostgreSQL
+	if err := db.InitDB(cfg.GetDBConnString()); err != nil {
+		log.Fatalf("Ошибка подключения к БД: %v", err)
+	}
+
+	// Миграции
+	if err := db.Migrate(db.DB); err != nil {
+		log.Fatalf("Ошибка миграции: %v", err)
+	}
 
 	// Инициализируем кеш
 	c := cache.NewCache()
@@ -38,7 +47,7 @@ func main() {
 
 	// HTTP роуты
 	r := mux.NewRouter()
-	r.HandleFunc("/order/{id}", c.GetOrderHandler).Methods("GET")
+	r.HandleFunc("/order/{id}", getOrderHandler(c)).Methods("GET")
 	r.HandleFunc("/", serveWeb)
 
 	// HTTP сервер
@@ -101,6 +110,26 @@ func consumeKafka(cfg *Config, c *cache.Cache) {
 		c.Set(order.OrderUID, order)
 
 		log.Printf("Новый заказ сохранён: %s", order.OrderUID)
+
+	}
+}
+
+// getOrderHandler возвращает JSON заказ по UID
+func getOrderHandler(c *cache.Cache) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		vars := mux.Vars(r)
+		uid := vars["id"]
+
+		order, ok := c.GetOrder(uid)
+		if !ok {
+			http.Error(w, "order not found", http.StatusNotFound)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(order); err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+		}
 	}
 }
 
@@ -121,7 +150,10 @@ func serveWeb(w http.ResponseWriter, r *http.Request) {
 			function fetchOrder() {
 				const id = document.getElementById("orderId").value;
 				fetch("/order/" + id)
-					.then(res => res.json())
+					.then(res => {
+						if (!res.ok) throw new Error("Not found");
+						return res.json();
+					})
 					.then(data => {
 						document.getElementById("result").textContent = JSON.stringify(data, null, 2);
 					})
